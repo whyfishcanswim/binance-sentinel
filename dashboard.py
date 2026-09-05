@@ -1,6 +1,7 @@
 import streamlit as st
 
 from app.constitution import RiskConstitution
+from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
 from app.risk_engine import allocations, rebalance_proposal, risk_summary
 from app.sample_data import SAMPLE_PORTFOLIO, STRESS_SCENARIOS
 from app.stress_test import run_stress_test
@@ -22,7 +23,7 @@ def pct(value: float) -> str:
 
 
 st.title("Binance Sentinel")
-st.caption("v0.4 — Safe local browser dashboard")
+st.caption("v0.5 — Safe dashboard with live public Binance market data")
 st.info("Safe local mode: no Binance login, no API keys, and no trading.")
 
 with st.sidebar:
@@ -73,6 +74,38 @@ metric2.metric("Overall Risk", risk["level"])
 metric3.metric("Stablecoin Allocation", pct(risk["stablecoin_allocation"]))
 metric4.metric("Single-Asset Limit", pct(constitution.max_single_asset))
 
+st.subheader("Live Binance Market Data")
+st.caption("Public Binance data only. No account authentication is used.")
+
+if st.button("Refresh Market Data"):
+    st.cache_data.clear()
+
+
+@st.cache_data(ttl=30)
+def get_market_snapshot() -> dict:
+    return fetch_market_snapshot(TRACKED_ASSETS)
+
+
+market_snapshot = get_market_snapshot()
+market_columns = st.columns(len(TRACKED_ASSETS))
+
+for column, asset in zip(market_columns, TRACKED_ASSETS):
+    result = market_snapshot[asset]
+    with column:
+        if result["ok"]:
+            data = result["data"]
+            st.metric(
+                f"{asset}/USDT",
+                money(data["price"]),
+                f"{data['change_percent']:.2f}% (24h)",
+            )
+            st.caption(
+                f"24h high {money(data['high'])} · low {money(data['low'])}"
+            )
+        else:
+            st.error(f"{asset} market data unavailable")
+            st.caption(result["error"])
+
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
     {
@@ -82,7 +115,7 @@ portfolio_rows = [
     }
     for asset, value in portfolio.items()
 ]
-st.dataframe(portfolio_rows, use_container_width=True, hide_index=True)
+st.dataframe(portfolio_rows, width="stretch", hide_index=True)
 
 chart_data = {asset: weight * 100 for asset, weight in weights.items()}
 st.bar_chart(chart_data)
@@ -124,7 +157,7 @@ with right:
             f"Target {proposal['asset']} allocation: "
             f"**{pct(proposal['target_allocation'])}**"
         )
-        st.caption("Suggestion only. Sentinel v0.4 cannot place trades.")
+        st.caption("Suggestion only. Sentinel v0.5 cannot place trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
@@ -142,9 +175,9 @@ for name, scenario in STRESS_SCENARIOS.items():
         }
     )
 
-st.dataframe(stress_rows, use_container_width=True, hide_index=True)
+st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.4 is a local prototype. Binance Agent OS authentication and execution remain disabled."
+    "Sentinel v0.5 uses public Binance market data only. Binance Agent OS authentication and execution remain disabled."
 )
