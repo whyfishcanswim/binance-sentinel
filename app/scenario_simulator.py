@@ -30,6 +30,9 @@ DEFAULT_SCENARIOS = {
     },
 }
 
+# Compatibility alias used by Scenario Lab UI
+SCENARIOS = DEFAULT_SCENARIOS
+
 
 def simulate_market_event(portfolio: dict[str, float], scenario: dict[str, float]) -> dict:
     """Apply hypothetical percentage moves to a portfolio."""
