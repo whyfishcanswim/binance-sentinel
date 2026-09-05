@@ -1,3 +1,4 @@
+from app.constitution import ask_for_constitution
 from app.risk_engine import allocations, rebalance_proposal, risk_summary
 from app.sample_data import SAMPLE_PORTFOLIO, STRESS_SCENARIOS
 from app.stress_test import run_stress_test
@@ -12,7 +13,7 @@ def pct(value: float) -> str:
 
 
 def show_portfolio() -> None:
-    print("BINANCE SENTINEL — SAFE LOCAL PROTOTYPE\n")
+    print("BINANCE SENTINEL v0.3 — SAFE LOCAL PROTOTYPE\n")
     print("No Binance login. No API keys. No trading.\n")
 
     print("SAMPLE PORTFOLIO")
@@ -27,10 +28,10 @@ def show_portfolio() -> None:
     print(f"\nTotal: {money(total)}\n")
 
 
-def show_risk() -> None:
-    result = risk_summary(SAMPLE_PORTFOLIO)
+def show_risk(constitution) -> None:
+    result = risk_summary(SAMPLE_PORTFOLIO, constitution)
 
-    print("RISK CHECK")
+    print("\nRISK CHECK")
     print("----------")
     print(f"Overall risk: {result['level']}")
     print(
@@ -48,7 +49,7 @@ def show_risk() -> None:
     else:
         print("\nNo concentration-limit violations detected.")
 
-    proposal = rebalance_proposal(SAMPLE_PORTFOLIO)
+    proposal = rebalance_proposal(SAMPLE_PORTFOLIO, constitution)
     if proposal:
         print("\nSUGGESTED REBALANCE")
         print("-------------------")
@@ -60,6 +61,8 @@ def show_risk() -> None:
             f"Target {proposal['asset']} allocation: "
             f"{pct(proposal['target_allocation'])}"
         )
+    else:
+        print("\nNo rebalance is required under your current constitution.")
 
     print()
 
@@ -79,11 +82,19 @@ def show_stress_tests() -> None:
 
 def main() -> None:
     show_portfolio()
-    show_risk()
+
+    constitution = ask_for_constitution()
+
+    print("\nACTIVE CONSTITUTION")
+    print("-------------------")
+    print(f"Maximum single asset: {pct(constitution.max_single_asset)}")
+    print(f"Minimum stablecoin:   {pct(constitution.min_stablecoin)}")
+
+    show_risk(constitution)
     show_stress_tests()
 
-    print("Prototype complete.")
-    print("Next milestone: interactive Risk Constitution + simple dashboard.")
+    print("Prototype v0.3 complete.")
+    print("Next milestone: simple browser dashboard.")
 
 
 if __name__ == "__main__":
