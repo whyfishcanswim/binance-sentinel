@@ -2,6 +2,7 @@ import streamlit as st
 
 from app.constitution import RiskConstitution
 from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
+from app.market_risk import market_aware_risk
 from app.risk_engine import allocations, rebalance_proposal, risk_summary
 from app.sample_data import SAMPLE_PORTFOLIO, STRESS_SCENARIOS
 from app.stress_test import run_stress_test
@@ -22,8 +23,13 @@ def pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
+@st.cache_data(ttl=30)
+def get_market_snapshot() -> dict:
+    return fetch_market_snapshot(TRACKED_ASSETS)
+
+
 st.title("Binance Sentinel")
-st.caption("v0.5 — Safe dashboard with live public Binance market data")
+st.caption("v0.6 — Market-aware portfolio risk dashboard")
 st.info("Safe local mode: no Binance login, no API keys, and no trading.")
 
 with st.sidebar:
@@ -65,26 +71,14 @@ constitution = RiskConstitution(
 
 weights = allocations(portfolio)
 total = sum(portfolio.values())
-risk = risk_summary(portfolio, constitution)
+constitution_risk = risk_summary(portfolio, constitution)
 proposal = rebalance_proposal(portfolio, constitution)
-
-metric1, metric2, metric3, metric4 = st.columns(4)
-metric1.metric("Portfolio Value", money(total))
-metric2.metric("Overall Risk", risk["level"])
-metric3.metric("Stablecoin Allocation", pct(risk["stablecoin_allocation"]))
-metric4.metric("Single-Asset Limit", pct(constitution.max_single_asset))
 
 st.subheader("Live Binance Market Data")
 st.caption("Public Binance data only. No account authentication is used.")
 
 if st.button("Refresh Market Data"):
     st.cache_data.clear()
-
-
-@st.cache_data(ttl=30)
-def get_market_snapshot() -> dict:
-    return fetch_market_snapshot(TRACKED_ASSETS)
-
 
 market_snapshot = get_market_snapshot()
 market_columns = st.columns(len(TRACKED_ASSETS))
@@ -106,6 +100,37 @@ for column, asset in zip(market_columns, TRACKED_ASSETS):
             st.error(f"{asset} market data unavailable")
             st.caption(result["error"])
 
+market_risk = market_aware_risk(portfolio, constitution, market_snapshot)
+
+st.subheader("Market-Aware Risk")
+metric1, metric2, metric3, metric4 = st.columns(4)
+metric1.metric("Portfolio Value", money(total))
+metric2.metric("Risk Level", market_risk["level"])
+metric3.metric("Risk Score", f"{market_risk['score']:.1f} / 100")
+metric4.metric(
+    "Weighted 24h Move",
+    f"{market_risk['weighted_24h_change']:.2f}%",
+)
+
+if market_risk["level"] == "CRITICAL":
+    st.error("Sentinel detects critical combined portfolio and market risk.")
+elif market_risk["level"] == "HIGH":
+    st.warning("Sentinel detects elevated combined portfolio and market risk.")
+elif market_risk["level"] == "MODERATE":
+    st.info("Sentinel detects moderate combined portfolio and market risk.")
+else:
+    st.success("Sentinel currently detects low combined portfolio and market risk.")
+
+st.write("**Why Sentinel assigned this score**")
+for reason in market_risk["reasons"]:
+    st.write(f"- {reason}")
+
+st.caption(
+    f"Live market-data coverage of the sample portfolio: "
+    f"{pct(market_risk['market_data_coverage'])}. "
+    "The score is deterministic and explainable; it is not a price prediction."
+)
+
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
     {
@@ -123,21 +148,21 @@ st.bar_chart(chart_data)
 left, right = st.columns(2)
 
 with left:
-    st.subheader("Risk Check")
+    st.subheader("Risk Constitution Check")
 
-    if risk["level"] == "HIGH":
+    if constitution_risk["level"] == "HIGH":
         st.error("Risk Constitution violation detected.")
     else:
         st.success("Portfolio is within the current Risk Constitution.")
 
     st.write(
-        f"Stablecoin allocation: **{pct(risk['stablecoin_allocation'])}** "
-        f"(minimum **{pct(risk['stablecoin_minimum'])}**)"
+        f"Stablecoin allocation: **{pct(constitution_risk['stablecoin_allocation'])}** "
+        f"(minimum **{pct(constitution_risk['stablecoin_minimum'])}**)"
     )
 
-    if risk["violations"]:
+    if constitution_risk["violations"]:
         st.write("**Concentration violations**")
-        for violation in risk["violations"]:
+        for violation in constitution_risk["violations"]:
             st.write(
                 f"- {violation['asset']}: {pct(violation['allocation'])} "
                 f"> limit {pct(violation['limit'])}"
@@ -157,7 +182,7 @@ with right:
             f"Target {proposal['asset']} allocation: "
             f"**{pct(proposal['target_allocation'])}**"
         )
-        st.caption("Suggestion only. Sentinel v0.5 cannot place trades.")
+        st.caption("Suggestion only. Sentinel v0.6 cannot place trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
@@ -179,5 +204,6 @@ st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.5 uses public Binance market data only. Binance Agent OS authentication and execution remain disabled."
+    "Sentinel v0.6 combines the sample portfolio, Risk Constitution, stress tests, "
+    "and live public Binance market data. Binance Agent OS authentication and execution remain disabled."
 )
