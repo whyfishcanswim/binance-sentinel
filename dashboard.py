@@ -1,5 +1,6 @@
 import streamlit as st
 
+from app.agent_os import skills_hub_status
 from app.approval import build_action_request, decision_record
 from app.constitution import RiskConstitution
 from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
@@ -32,8 +33,31 @@ def get_market_snapshot() -> dict:
 
 
 st.title("Binance Sentinel")
-st.caption("v0.9 — Human approval workflow")
-st.info("Safe local mode: no Binance login, no API keys, and no real trading.")
+st.caption("v0.10 — Binance Agent OS / Skills integration")
+st.info("Safe mode: public market data only, no Binance account login, no API keys, and no real trading.")
+
+agent_os_status = skills_hub_status()
+
+st.subheader("Agent OS Integration")
+status1, status2, status3 = st.columns(3)
+status1.metric("Integration Mode", agent_os_status["mode"])
+status2.metric("binance-cli", "Detected" if agent_os_status["active"] else "Not detected")
+status3.metric("Sentinel Skill", "Installed" if agent_os_status["skill_path"] else "Repository skill")
+
+if agent_os_status["active"]:
+    st.success("Official Binance Skills Hub toolchain detected. Public market data will prefer binance-cli.")
+    if agent_os_status["cli_version"]:
+        st.caption(f"CLI: {agent_os_status['cli_version']}")
+else:
+    st.warning(
+        "Official Binance Skills Hub CLI is not installed on this computer yet. "
+        "Sentinel will continue with the public Binance REST fallback until the CLI is installed."
+    )
+
+st.caption(
+    "Sentinel also includes a Skills-compatible definition at "
+    "`.agents/skills/binance-sentinel/SKILL.md` so agent runtimes can discover the workflow."
+)
 
 with st.sidebar:
     st.header("Risk Constitution")
@@ -99,6 +123,7 @@ for column, asset in zip(market_columns, TRACKED_ASSETS):
             st.caption(
                 f"24h high {money(data['high'])} · low {money(data['low'])}"
             )
+            st.caption(f"Source: {data.get('source', 'Binance public data')}")
         else:
             st.error(f"{asset} market data unavailable")
             st.caption(result["error"])
@@ -134,10 +159,7 @@ metric1, metric2, metric3, metric4 = st.columns(4)
 metric1.metric("Portfolio Value", money(total))
 metric2.metric("Risk Level", market_risk["level"])
 metric3.metric("Risk Score", f"{market_risk['score']:.1f} / 100")
-metric4.metric(
-    "Weighted 24h Move",
-    f"{market_risk['weighted_24h_change']:.2f}%",
-)
+metric4.metric("Weighted 24h Move", f"{market_risk['weighted_24h_change']:.2f}%")
 
 if market_risk["level"] == "CRITICAL":
     st.error("Sentinel detects critical combined portfolio and market risk.")
@@ -153,8 +175,7 @@ for reason in market_risk["reasons"]:
     st.write(f"- {reason}")
 
 st.caption(
-    f"Live market-data coverage of the sample portfolio: "
-    f"{pct(market_risk['market_data_coverage'])}. "
+    f"Live market-data coverage of the sample portfolio: {pct(market_risk['market_data_coverage'])}. "
     "The score is deterministic and explainable; it is not a price prediction."
 )
 
@@ -186,26 +207,14 @@ st.caption("This is a what-if calculation only. No trade is sent anywhere.")
 
 if proposal:
     st.write(
-        f"Simulated action: reduce **{proposal['asset']}** by about "
-        f"**{money(proposal['reduce_by'])}** and move that value to "
-        f"**{proposal['destination']}**."
+        f"Simulated action: reduce **{proposal['asset']}** by about **{money(proposal['reduce_by'])}** "
+        f"and move that value to **{proposal['destination']}**."
     )
 
     before_col, after_col, change_col = st.columns(3)
-    before_col.metric(
-        "Before Risk Score",
-        f"{preview['before_market']['score']:.1f} / 100",
-        preview["before_market"]["level"],
-    )
-    after_col.metric(
-        "After Risk Score",
-        f"{preview['after_market']['score']:.1f} / 100",
-        preview["after_market"]["level"],
-    )
-    change_col.metric(
-        "Score Change",
-        f"{preview['score_change']:+.1f}",
-    )
+    before_col.metric("Before Risk Score", f"{preview['before_market']['score']:.1f} / 100", preview["before_market"]["level"])
+    after_col.metric("After Risk Score", f"{preview['after_market']['score']:.1f} / 100", preview["after_market"]["level"])
+    change_col.metric("Score Change", f"{preview['score_change']:+.1f}")
 
     if preview["score_change"] < 0 or preview["violations_change"] < 0:
         st.success(preview["verdict"])
@@ -268,8 +277,7 @@ if action_request:
         f"from {action_request['source_asset']} to {action_request['destination_asset']}."
     )
     st.write(
-        f"Expected risk score: **{action_request['before_score']:.1f} → "
-        f"{action_request['after_score']:.1f}**"
+        f"Expected risk score: **{action_request['before_score']:.1f} → {action_request['after_score']:.1f}**"
     )
 
     approve_col, reject_col = st.columns(2)
@@ -289,9 +297,7 @@ if action_request:
     decision = st.session_state.get("approval_decision")
     if decision:
         if decision["status"] == "APPROVED":
-            st.success(
-                f"Action {decision['id']} APPROVED for local simulation only. No real trade was sent."
-            )
+            st.success(f"Action {decision['id']} APPROVED for local simulation only. No real trade was sent.")
             approved = st.session_state.get("approved_portfolio")
             if approved:
                 approved_rows = []
@@ -307,19 +313,13 @@ if action_request:
                 st.write("**Approved simulated portfolio state**")
                 st.dataframe(approved_rows, width="stretch", hide_index=True)
         else:
-            st.error(
-                f"Action {decision['id']} REJECTED. The local portfolio simulation remains unchanged."
-            )
+            st.error(f"Action {decision['id']} REJECTED. The local portfolio simulation remains unchanged.")
 else:
     st.info("No action requires approval under the current Risk Constitution.")
 
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
-    {
-        "Asset": asset,
-        "Value": money(value),
-        "Allocation": pct(weights.get(asset, 0.0)),
-    }
+    {"Asset": asset, "Value": money(value), "Allocation": pct(weights.get(asset, 0.0))}
     for asset, value in portfolio.items()
 ]
 st.dataframe(portfolio_rows, width="stretch", hide_index=True)
@@ -346,8 +346,7 @@ with left:
         st.write("**Concentration violations**")
         for violation in constitution_risk["violations"]:
             st.write(
-                f"- {violation['asset']}: {pct(violation['allocation'])} "
-                f"> limit {pct(violation['limit'])}"
+                f"- {violation['asset']}: {pct(violation['allocation'])} > limit {pct(violation['limit'])}"
             )
     else:
         st.write("No concentration-limit violations detected.")
@@ -360,11 +359,8 @@ with right:
             f"Reduce {proposal['asset']} by about {money(proposal['reduce_by'])} "
             f"and move that amount to {proposal['destination']}."
         )
-        st.write(
-            f"Target {proposal['asset']} allocation: "
-            f"**{pct(proposal['target_allocation'])}**"
-        )
-        st.caption("Suggestion only. Sentinel v0.9 cannot place trades.")
+        st.write(f"Target {proposal['asset']} allocation: **{pct(proposal['target_allocation'])}**")
+        st.caption("Suggestion only. Sentinel v0.10 cannot place real trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
@@ -383,6 +379,6 @@ st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.9 adds explicit human Approve / Reject control for simulated actions. "
-    "Approval changes only local simulation state. Binance Agent OS authentication and real execution remain disabled."
+    "Sentinel v0.10 adds Binance Agent OS / Skills integration for public market data and a "
+    "Skills-compatible Sentinel workflow definition. Account authentication and real execution remain disabled."
 )
