@@ -1,9 +1,10 @@
 """Binance Agent OS / Skills Hub integration helpers for Sentinel v0.10.
 
-Sentinel uses the official Binance Skills Hub toolchain when `binance-cli` is
-available. Public market-data commands do not need an API key. If the CLI is
-not installed, the dashboard can continue using the existing public REST
-fallback while clearly reporting that Agent OS Skills mode is inactive.
+Sentinel can detect the official Binance `binance` Skill installed into the
+project and can use `binance-cli` when that executable is available. On Windows,
+the Skill may be installed even when the CLI is not yet available; in that case
+Sentinel keeps using the public Binance REST fallback while honestly reporting
+the integration state.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from pathlib import Path
 
 
 BINANCE_SKILLS_REPO = "https://github.com/binance/binance-skills-hub"
+BINANCE_SKILL_URL = (
+    "https://github.com/binance/binance-skills-hub/tree/main/skills/binance/binance"
+)
 
 
 def _candidate_skill_paths() -> list[Path]:
@@ -22,8 +26,8 @@ def _candidate_skill_paths() -> list[Path]:
     home = Path.home()
     relative_paths = [
         Path(".agents/skills/binance"),
-        Path(".claude/skills/binance"),
         Path(".codex/skills/binance"),
+        Path(".claude/skills/binance"),
         Path(".gemini/skills/binance"),
         Path("skills/binance"),
     ]
@@ -31,7 +35,7 @@ def _candidate_skill_paths() -> list[Path]:
 
 
 def skills_hub_status() -> dict:
-    """Describe whether the official Binance Skills toolchain is available."""
+    """Describe the local official Binance Skill and CLI state."""
 
     cli_path = shutil.which("binance-cli")
     installed_skill_path = next(
@@ -56,16 +60,27 @@ def skills_hub_status() -> dict:
         except (OSError, subprocess.SubprocessError) as exc:
             cli_error = str(exc)
 
-    active = bool(cli_path)
+    skill_installed = installed_skill_path is not None
+    cli_active = cli_path is not None
+
+    if skill_installed and cli_active:
+        mode = "BINANCE SKILLS + CLI"
+    elif skill_installed:
+        mode = "BINANCE SKILL INSTALLED"
+    else:
+        mode = "PUBLIC REST FALLBACK"
 
     return {
-        "active": active,
+        "active": cli_active,
+        "cli_active": cli_active,
+        "skill_installed": skill_installed,
         "cli_path": cli_path,
         "cli_version": cli_version,
         "cli_error": cli_error,
         "skill_path": str(installed_skill_path) if installed_skill_path else None,
         "skills_repo": BINANCE_SKILLS_REPO,
-        "mode": "BINANCE SKILLS HUB" if active else "PUBLIC REST FALLBACK",
+        "skill_url": BINANCE_SKILL_URL,
+        "mode": mode,
     }
 
 
@@ -98,9 +113,9 @@ def _parse_json_output(text: str) -> dict:
 def fetch_spot_24h_via_skill(asset: str) -> dict:
     """Fetch a public Spot 24h ticker through the official Binance CLI.
 
-    The official Binance Skills Hub `binance` skill uses `binance-cli` as its
-    underlying executable. This command calls only the public Spot ticker
-    endpoint and does not require Binance credentials.
+    The official Binance `binance` Skill documents the public Spot market-data
+    command used here. No Binance API credentials are needed for this market
+    endpoint.
     """
 
     cli_path = shutil.which("binance-cli")
