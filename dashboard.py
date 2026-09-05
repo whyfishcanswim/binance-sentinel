@@ -3,6 +3,7 @@ import streamlit as st
 from app.constitution import RiskConstitution
 from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
 from app.market_risk import market_aware_risk
+from app.reasoning import build_agent_assessment
 from app.risk_engine import allocations, rebalance_proposal, risk_summary
 from app.sample_data import SAMPLE_PORTFOLIO, STRESS_SCENARIOS
 from app.stress_test import run_stress_test
@@ -29,7 +30,7 @@ def get_market_snapshot() -> dict:
 
 
 st.title("Binance Sentinel")
-st.caption("v0.6 — Market-aware portfolio risk dashboard")
+st.caption("v0.7 — Explainable agent reasoning layer")
 st.info("Safe local mode: no Binance login, no API keys, and no trading.")
 
 with st.sidebar:
@@ -102,6 +103,20 @@ for column, asset in zip(market_columns, TRACKED_ASSETS):
 
 market_risk = market_aware_risk(portfolio, constitution, market_snapshot)
 
+stress_results = []
+for name, scenario in STRESS_SCENARIOS.items():
+    result = run_stress_test(portfolio, scenario)
+    result["name"] = name
+    stress_results.append(result)
+
+assessment = build_agent_assessment(
+    portfolio,
+    constitution_risk,
+    market_risk,
+    proposal,
+    stress_results,
+)
+
 st.subheader("Market-Aware Risk")
 metric1, metric2, metric3, metric4 = st.columns(4)
 metric1.metric("Portfolio Value", money(total))
@@ -130,6 +145,29 @@ st.caption(
     f"{pct(market_risk['market_data_coverage'])}. "
     "The score is deterministic and explainable; it is not a price prediction."
 )
+
+st.subheader("Sentinel Agent Assessment")
+agent1, agent2 = st.columns([1, 3])
+with agent1:
+    st.metric("Action Priority", assessment["priority"])
+with agent2:
+    st.write(f"### {assessment['headline']}")
+
+with st.expander("Observe — what Sentinel sees", expanded=True):
+    for item in assessment["observations"]:
+        st.write(f"- {item}")
+
+with st.expander("Reason — how Sentinel interprets it", expanded=True):
+    for item in assessment["reasoning"]:
+        st.write(f"- {item}")
+
+with st.expander("Plan — what Sentinel recommends reviewing", expanded=True):
+    for item in assessment["plan"]:
+        st.write(f"- {item}")
+
+with st.expander("Guardrails — what Sentinel is not allowed to do"):
+    for item in assessment["guardrails"]:
+        st.write(f"- {item}")
 
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
@@ -182,28 +220,25 @@ with right:
             f"Target {proposal['asset']} allocation: "
             f"**{pct(proposal['target_allocation'])}**"
         )
-        st.caption("Suggestion only. Sentinel v0.6 cannot place trades.")
+        st.caption("Suggestion only. Sentinel v0.7 cannot place trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
 st.subheader("Stress Tests")
-stress_rows = []
-
-for name, scenario in STRESS_SCENARIOS.items():
-    result = run_stress_test(portfolio, scenario)
-    stress_rows.append(
-        {
-            "Scenario": name,
-            "Before": money(result["before"]),
-            "After": money(result["after"]),
-            "Impact": pct(result["drawdown"]),
-        }
-    )
+stress_rows = [
+    {
+        "Scenario": result["name"],
+        "Before": money(result["before"]),
+        "After": money(result["after"]),
+        "Impact": pct(result["drawdown"]),
+    }
+    for result in stress_results
+]
 
 st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.6 combines the sample portfolio, Risk Constitution, stress tests, "
-    "and live public Binance market data. Binance Agent OS authentication and execution remain disabled."
+    "Sentinel v0.7 adds an auditable Observe → Reason → Plan → Guardrail layer. "
+    "It uses no external AI API yet, and Binance Agent OS authentication and execution remain disabled."
 )
