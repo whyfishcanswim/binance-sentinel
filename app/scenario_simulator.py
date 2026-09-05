@@ -1,89 +1,53 @@
-"""What-if scenario simulation engine for Binance Sentinel.
-
-This module lets Sentinel estimate portfolio impact under hypothetical market
-conditions without executing trades or connecting to an exchange account.
-"""
+"""Scenario simulation engine for Binance Sentinel."""
 
 from __future__ import annotations
 
-
-DEFAULT_SCENARIOS = {
+SCENARIOS = {
     "Bitcoin drops 20%": {
-        "BTC": -0.20,
-        "ETH": -0.15,
-        "BNB": -0.10,
+        "description": "A BTC-led market correction scenario testing downside exposure.",
+        "impact": -20,
     },
     "Market crash": {
-        "BTC": -0.30,
-        "ETH": -0.35,
-        "BNB": -0.40,
+        "description": "A severe market-wide drawdown scenario.",
+        "impact": -35,
     },
     "Bull market": {
-        "BTC": 0.20,
-        "ETH": 0.25,
-        "BNB": 0.30,
+        "description": "A positive market expansion scenario.",
+        "impact": 25,
     },
     "High volatility event": {
-        "BTC": -0.10,
-        "ETH": -0.20,
-        "BNB": -0.25,
+        "description": "A rapid volatility spike with uncertain direction.",
+        "impact": -10,
     },
 }
 
-SCENARIOS = DEFAULT_SCENARIOS
 
+def simulate_scenario(portfolio_value: float, scenario: dict) -> dict:
+    """Run a safe what-if simulation without trading."""
 
-def simulate_market_event(portfolio: dict[str, float], scenario: dict[str, float]) -> dict:
-    """Apply hypothetical percentage moves to a portfolio."""
+    before = portfolio_value
+    impact = scenario["impact"]
+    after = before * (1 + impact / 100)
 
-    before = sum(portfolio.values())
-    after = 0.0
-    changes = []
-
-    for asset, value in portfolio.items():
-        movement = scenario.get(asset, 0.0)
-        new_value = value * (1 + movement)
-        after += new_value
-        changes.append(
-            {
-                "asset": asset,
-                "before": value,
-                "after": new_value,
-                "change_percent": movement * 100,
-            }
-        )
+    if impact <= -30:
+        analysis = [
+            "High downside exposure detected.",
+            "Sentinel recommends reviewing concentration risk and reserve allocation.",
+        ]
+    elif impact < 0:
+        analysis = [
+            "Moderate downside scenario detected.",
+            "Portfolio remains under simulated stress conditions.",
+        ]
+    else:
+        analysis = [
+            "Positive simulated market movement.",
+            "Scenario indicates potential portfolio growth.",
+        ]
 
     return {
-        "before_value": before,
-        "after_value": after,
-        "absolute_change": after - before,
-        "percentage_change": ((after - before) / before * 100) if before else 0,
-        "changes": changes,
+        "before": before,
+        "after": after,
+        "impact": impact,
+        "analysis": analysis,
     }
-
-
-# Compatibility wrapper expected by Scenario Lab
-
-def simulate_scenario(portfolio: dict[str, float], scenario: dict[str, float]) -> dict:
-    """Run a named scenario simulation through the Sentinel engine."""
-    return simulate_market_event(portfolio, scenario)
-
-
-def build_scenario_explanation(result: dict, scenario_name: str) -> str:
-    """Generate a concise Sentinel-style explanation."""
-
-    impact = result["percentage_change"]
-
-    if impact <= -20:
-        level = "severe downside exposure"
-    elif impact < -10:
-        level = "elevated downside exposure"
-    elif impact < 0:
-        level = "limited downside impact"
-    else:
-        level = "positive portfolio movement"
-
-    return (
-        f"Under '{scenario_name}', Sentinel estimates {impact:+.1f}% portfolio impact. "
-        f"This represents {level}. The result is a simulation only and does not execute any action."
-    )
