@@ -1,5 +1,6 @@
 import streamlit as st
 
+from app.approval import build_action_request, decision_record
 from app.constitution import RiskConstitution
 from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
 from app.market_risk import market_aware_risk
@@ -31,8 +32,8 @@ def get_market_snapshot() -> dict:
 
 
 st.title("Binance Sentinel")
-st.caption("v0.8 — Simulated rebalance preview")
-st.info("Safe local mode: no Binance login, no API keys, and no trading.")
+st.caption("v0.9 — Human approval workflow")
+st.info("Safe local mode: no Binance login, no API keys, and no real trading.")
 
 with st.sidebar:
     st.header("Risk Constitution")
@@ -125,6 +126,8 @@ preview = build_rebalance_preview(
     market_snapshot,
     STRESS_SCENARIOS,
 )
+
+action_request = build_action_request(portfolio, proposal, preview)
 
 st.subheader("Market-Aware Risk")
 metric1, metric2, metric3, metric4 = st.columns(4)
@@ -243,6 +246,73 @@ if proposal:
 else:
     st.success("No concentration-driven rebalance is currently required, so there is nothing to simulate.")
 
+st.subheader("Human Approval Workflow")
+st.caption("Approval affects only this local simulation. It does not place a Binance order.")
+
+if action_request:
+    current_action_id = action_request["id"]
+
+    if st.session_state.get("approval_action_id") != current_action_id:
+        st.session_state["approval_action_id"] = current_action_id
+        st.session_state["approval_decision"] = None
+        st.session_state["approved_portfolio"] = None
+
+    request1, request2, request3, request4 = st.columns(4)
+    request1.metric("Action ID", action_request["id"])
+    request2.metric("Source", action_request["source_asset"])
+    request3.metric("Destination", action_request["destination_asset"])
+    request4.metric("Amount", money(action_request["amount_usd"]))
+
+    st.write(
+        f"**Requested action:** move about {money(action_request['amount_usd'])} of value "
+        f"from {action_request['source_asset']} to {action_request['destination_asset']}."
+    )
+    st.write(
+        f"Expected risk score: **{action_request['before_score']:.1f} → "
+        f"{action_request['after_score']:.1f}**"
+    )
+
+    approve_col, reject_col = st.columns(2)
+
+    with approve_col:
+        if st.button("Approve simulated action", type="primary", use_container_width=True):
+            record = decision_record(action_request, "APPROVED")
+            st.session_state["approval_decision"] = record
+            st.session_state["approved_portfolio"] = action_request["simulated_after_portfolio"]
+
+    with reject_col:
+        if st.button("Reject action", use_container_width=True):
+            record = decision_record(action_request, "REJECTED")
+            st.session_state["approval_decision"] = record
+            st.session_state["approved_portfolio"] = None
+
+    decision = st.session_state.get("approval_decision")
+    if decision:
+        if decision["status"] == "APPROVED":
+            st.success(
+                f"Action {decision['id']} APPROVED for local simulation only. No real trade was sent."
+            )
+            approved = st.session_state.get("approved_portfolio")
+            if approved:
+                approved_rows = []
+                approved_weights = allocations(approved)
+                for asset, value in approved.items():
+                    approved_rows.append(
+                        {
+                            "Asset": asset,
+                            "Approved Simulated Value": money(value),
+                            "Allocation": pct(approved_weights.get(asset, 0.0)),
+                        }
+                    )
+                st.write("**Approved simulated portfolio state**")
+                st.dataframe(approved_rows, width="stretch", hide_index=True)
+        else:
+            st.error(
+                f"Action {decision['id']} REJECTED. The local portfolio simulation remains unchanged."
+            )
+else:
+    st.info("No action requires approval under the current Risk Constitution.")
+
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
     {
@@ -294,7 +364,7 @@ with right:
             f"Target {proposal['asset']} allocation: "
             f"**{pct(proposal['target_allocation'])}**"
         )
-        st.caption("Suggestion only. Sentinel v0.8 cannot place trades.")
+        st.caption("Suggestion only. Sentinel v0.9 cannot place trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
@@ -313,6 +383,6 @@ st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.8 adds a simulated before-vs-after rebalance preview. "
-    "It executes nothing. Binance Agent OS authentication and real execution remain disabled."
+    "Sentinel v0.9 adds explicit human Approve / Reject control for simulated actions. "
+    "Approval changes only local simulation state. Binance Agent OS authentication and real execution remain disabled."
 )
