@@ -1,10 +1,9 @@
 """Binance Agent OS / Skills Hub integration helpers for Sentinel v0.10.
 
-Sentinel can detect the official Binance `binance` Skill installed into the
-project and can use `binance-cli` when that executable is available. On Windows,
-the Skill may be installed even when the CLI is not yet available; in that case
-Sentinel keeps using the public Binance REST fallback while honestly reporting
-the integration state.
+Sentinel detects the official Binance `binance` Skill installed into the
+project and can use `binance-cli` either directly or through Windows Subsystem
+for Linux (WSL). If neither CLI path is available, Sentinel safely keeps using
+public Binance REST market data while reporting that fallback clearly.
 """
 
 from __future__ import annotations
@@ -34,10 +33,44 @@ def _candidate_skill_paths() -> list[Path]:
     return [cwd / path for path in relative_paths] + [home / path for path in relative_paths]
 
 
+def _detect_wsl_cli() -> dict | None:
+    """Return WSL binance-cli metadata when available."""
+
+    wsl_path = shutil.which("wsl") or shutil.which("wsl.exe")
+    if not wsl_path:
+        return None
+
+    try:
+        probe = subprocess.run(
+            [wsl_path, "sh", "-lc", "command -v binance-cli && binance-cli --version"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if probe.returncode != 0:
+        return None
+
+    lines = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    return {
+        "launcher": wsl_path,
+        "path": lines[0],
+        "version": lines[-1] if len(lines) > 1 else "installed",
+    }
+
+
 def skills_hub_status() -> dict:
     """Describe the local official Binance Skill and CLI state."""
 
-    cli_path = shutil.which("binance-cli")
+    direct_cli_path = shutil.which("binance-cli")
+    wsl_cli = None if direct_cli_path else _detect_wsl_cli()
+
     installed_skill_path = next(
         (path for path in _candidate_skill_paths() if (path / "SKILL.md").exists()),
         None,
@@ -45,11 +78,14 @@ def skills_hub_status() -> dict:
 
     cli_version = None
     cli_error = None
+    cli_transport = None
+    cli_path = direct_cli_path
 
-    if cli_path:
+    if direct_cli_path:
+        cli_transport = "DIRECT"
         try:
             result = subprocess.run(
-                [cli_path, "--version"],
+                [direct_cli_path, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -59,9 +95,13 @@ def skills_hub_status() -> dict:
             cli_version = version_text or "installed"
         except (OSError, subprocess.SubprocessError) as exc:
             cli_error = str(exc)
+    elif wsl_cli:
+        cli_transport = "WSL"
+        cli_path = wsl_cli["path"]
+        cli_version = wsl_cli["version"]
 
     skill_installed = installed_skill_path is not None
-    cli_active = cli_path is not None
+    cli_active = cli_transport is not None
 
     if skill_installed and cli_active:
         mode = "BINANCE SKILLS + CLI"
@@ -73,6 +113,7 @@ def skills_hub_status() -> dict:
     return {
         "active": cli_active,
         "cli_active": cli_active,
+        "cli_transport": cli_transport,
         "skill_installed": skill_installed,
         "cli_path": cli_path,
         "cli_version": cli_version,
@@ -110,32 +151,50 @@ def _parse_json_output(text: str) -> dict:
     return data
 
 
+def _run_binance_cli(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run binance-cli directly or through WSL."""
+
+    direct_cli_path = shutil.which("binance-cli")
+    if direct_cli_path:
+        command = [direct_cli_path, *arguments]
+    else:
+        wsl_cli = _detect_wsl_cli()
+        wsl_path = shutil.which("wsl") or shutil.which("wsl.exe")
+        if not wsl_cli or not wsl_path:
+            raise FileNotFoundError("binance-cli is not installed directly or in WSL")
+
+        shell_command = "binance-cli " + " ".join(
+            subprocess.list2cmdline([argument]) for argument in arguments
+        )
+        command = [wsl_path, "sh", "-lc", shell_command]
+
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=12,
+        check=False,
+    )
+
+
 def fetch_spot_24h_via_skill(asset: str) -> dict:
     """Fetch a public Spot 24h ticker through the official Binance CLI.
 
-    The official Binance `binance` Skill documents the public Spot market-data
-    command used here. No Binance API credentials are needed for this market
-    endpoint.
+    Binance's official Spot skill lists `ticker24hr` under Market endpoints,
+    while account and trade endpoints are separately marked as auth-required.
+    Sentinel only calls the public market endpoint here.
     """
 
-    cli_path = shutil.which("binance-cli")
-    if not cli_path:
-        raise FileNotFoundError("binance-cli is not installed or not on PATH")
-
     symbol = f"{asset.upper()}USDT"
-    result = subprocess.run(
-        [cli_path, "spot", "ticker24hr", "--symbol", symbol],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+    result = _run_binance_cli(["spot", "ticker24hr", "--symbol", symbol])
 
     if result.returncode != 0:
         details = (result.stderr or result.stdout).strip()
         raise RuntimeError(details or f"binance-cli exited with code {result.returncode}")
 
     data = _parse_json_output(result.stdout)
+    status = skills_hub_status()
+    transport = status.get("cli_transport") or "CLI"
 
     return {
         "asset": asset.upper(),
@@ -145,5 +204,5 @@ def fetch_spot_24h_via_skill(asset: str) -> dict:
         "high": float(data["highPrice"]),
         "low": float(data["lowPrice"]),
         "volume": float(data["volume"]),
-        "source": "Binance Agent OS Skills Hub / binance-cli",
+        "source": f"Binance Agent OS Skills Hub / binance-cli ({transport})",
     }
