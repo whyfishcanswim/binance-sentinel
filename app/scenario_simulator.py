@@ -30,7 +30,6 @@ DEFAULT_SCENARIOS = {
     },
 }
 
-# Compatibility alias used by Scenario Lab UI
 SCENARIOS = DEFAULT_SCENARIOS
 
 
@@ -61,6 +60,13 @@ def simulate_market_event(portfolio: dict[str, float], scenario: dict[str, float
         "percentage_change": ((after - before) / before * 100) if before else 0,
         "changes": changes,
     }
+
+
+# Compatibility wrapper expected by Scenario Lab
+
+def simulate_scenario(portfolio: dict[str, float], scenario: dict[str, float]) -> dict:
+    """Run a named scenario simulation through the Sentinel engine."""
+    return simulate_market_event(portfolio, scenario)
 
 
 def build_scenario_explanation(result: dict, scenario_name: str) -> str:
