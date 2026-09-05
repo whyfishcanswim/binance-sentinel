@@ -1,47 +1,49 @@
 import asyncio
 
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+from mcp import Client
 
 
 BINANCE_MCP_URL = "https://agent.binance.com/mcp/agentic"
 
 
+def print_exception_tree(exc: BaseException, level: int = 0) -> None:
+    """Print nested ExceptionGroup errors in a readable way."""
+    prefix = "  " * level
+    print(f"{prefix}- {type(exc).__name__}: {exc}")
+
+    if isinstance(exc, BaseExceptionGroup):
+        for child in exc.exceptions:
+            print_exception_tree(child, level + 1)
+
+
 async def main() -> None:
-    print("Binance Sentinel v0.1")
+    print("Binance Sentinel v0.1.1")
     print("Connecting to Binance Agent OS MCP...")
 
     try:
-        async with streamable_http_client(BINANCE_MCP_URL) as (
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
+        # The current MCP Python SDK accepts a remote MCP URL directly.
+        async with Client(BINANCE_MCP_URL) as client:
+            print("Connected successfully.\n")
+            print("Discovering available Binance MCP tools...\n")
 
-                print("Connected successfully.\n")
-                print("Discovering available Binance MCP tools...\n")
+            result = await client.list_tools()
 
-                result = await session.list_tools()
+            if not result.tools:
+                print("Connected, but no tools were returned.")
+                return
 
-                if not result.tools:
-                    print("Connected, but no tools were returned.")
-                    return
+            for index, tool in enumerate(result.tools, start=1):
+                print(f"{index}. {tool.name}")
 
-                for index, tool in enumerate(result.tools, start=1):
-                    print(f"{index}. {tool.name}")
+            print(f"\nTotal tools discovered: {len(result.tools)}")
 
-                print(f"\nTotal tools discovered: {len(result.tools)}")
-
-    except Exception as exc:
+    except BaseException as exc:
         print("\nConnection failed.")
-        print(f"Error type: {type(exc).__name__}")
-        print(f"Details: {exc}")
+        print("Detailed error:")
+        print_exception_tree(exc)
         print(
-            "\nThis is our first diagnostic step. "
-            "If Binance requests authorization or returns another connection error, "
-            "we will handle that in the next version."
+            "\nIf the error mentions 401, 403, authorization, or OAuth, "
+            "the MCP connection is reaching Binance and the next step is authentication."
         )
 
 
