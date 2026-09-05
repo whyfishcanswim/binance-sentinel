@@ -1,9 +1,9 @@
-"""Explainable agent reasoning for Binance Sentinel v0.7.
+"""Explainable agent reasoning for Binance Sentinel.
 
 This module deliberately keeps the reasoning deterministic. It converts the
 portfolio, Risk Constitution, market-aware score, rebalance proposal, and stress
 results into an auditable Observe -> Reason -> Plan -> Guardrail assessment.
-No LLM or external AI API is required in v0.7.
+No external LLM is required for this competition build.
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ def build_agent_assessment(
     score = float(market_risk["score"])
 
     if level == "CRITICAL":
-        priority = "IMMEDIATE REVIEW"
+        priority = "IMMEDIATE"
         headline = "Combined portfolio and market risk is critical."
     elif level == "HIGH":
-        priority = "HIGH PRIORITY"
+        priority = "HIGH"
         headline = "Portfolio risk is elevated and should be reviewed."
     elif level == "MODERATE":
         priority = "MONITOR"
@@ -101,10 +101,10 @@ def build_agent_assessment(
         )
 
     guardrails = [
-        "No trade is executed in v0.7.",
+        "No real trade is executed in this competition build.",
         "Risk Constitution rules override the reasoning layer.",
         "Live public market data is used only as evidence, not as a price prediction.",
-        "Any future execution step must require explicit human approval.",
+        "Any future execution step must require explicit human approval."
     ]
 
     return {
