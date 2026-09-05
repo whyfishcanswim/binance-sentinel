@@ -1,7 +1,7 @@
 """Deterministic portfolio risk checks for Sentinel's safe prototype."""
 
-MAX_SINGLE_ASSET = 0.40
-MIN_STABLECOIN = 0.15
+from app.constitution import RiskConstitution
+
 STABLECOINS = {"USDC", "USDT", "FDUSD"}
 
 
@@ -16,15 +16,18 @@ def allocations(portfolio: dict[str, float]) -> dict[str, float]:
     return {asset: value / total for asset, value in portfolio.items()}
 
 
-def concentration_violations(portfolio: dict[str, float]) -> list[dict]:
+def concentration_violations(
+    portfolio: dict[str, float],
+    constitution: RiskConstitution,
+) -> list[dict]:
     result = []
     for asset, weight in allocations(portfolio).items():
-        if asset not in STABLECOINS and weight > MAX_SINGLE_ASSET:
+        if asset not in STABLECOINS and weight > constitution.max_single_asset:
             result.append(
                 {
                     "asset": asset,
                     "allocation": weight,
-                    "limit": MAX_SINGLE_ASSET,
+                    "limit": constitution.max_single_asset,
                 }
             )
     return result
@@ -35,11 +38,14 @@ def stablecoin_allocation(portfolio: dict[str, float]) -> float:
     return sum(weights.get(asset, 0.0) for asset in STABLECOINS)
 
 
-def risk_summary(portfolio: dict[str, float]) -> dict:
-    violations = concentration_violations(portfolio)
+def risk_summary(
+    portfolio: dict[str, float],
+    constitution: RiskConstitution,
+) -> dict:
+    violations = concentration_violations(portfolio, constitution)
     stablecoin_weight = stablecoin_allocation(portfolio)
 
-    if violations or stablecoin_weight < MIN_STABLECOIN:
+    if violations or stablecoin_weight < constitution.min_stablecoin:
         level = "HIGH"
     else:
         level = "MODERATE"
@@ -48,11 +54,14 @@ def risk_summary(portfolio: dict[str, float]) -> dict:
         "level": level,
         "violations": violations,
         "stablecoin_allocation": stablecoin_weight,
-        "stablecoin_minimum": MIN_STABLECOIN,
+        "stablecoin_minimum": constitution.min_stablecoin,
     }
 
 
-def rebalance_proposal(portfolio: dict[str, float]) -> dict | None:
+def rebalance_proposal(
+    portfolio: dict[str, float],
+    constitution: RiskConstitution,
+) -> dict | None:
     total = portfolio_total(portfolio)
     if total <= 0:
         return None
@@ -61,20 +70,20 @@ def rebalance_proposal(portfolio: dict[str, float]) -> dict | None:
     risky = [
         (asset, weight)
         for asset, weight in weights.items()
-        if asset not in STABLECOINS and weight > MAX_SINGLE_ASSET
+        if asset not in STABLECOINS and weight > constitution.max_single_asset
     ]
     if not risky:
         return None
 
     asset, weight = max(risky, key=lambda item: item[1])
     current_value = portfolio[asset]
-    target_value = total * MAX_SINGLE_ASSET
+    target_value = total * constitution.max_single_asset
     amount_to_reduce = max(0.0, current_value - target_value)
 
     return {
         "asset": asset,
         "current_allocation": weight,
-        "target_allocation": MAX_SINGLE_ASSET,
+        "target_allocation": constitution.max_single_asset,
         "reduce_by": amount_to_reduce,
-        "destination": "USDC",
+        "destination": constitution.destination_stablecoin,
     }
