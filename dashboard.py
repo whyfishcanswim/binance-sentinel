@@ -3,6 +3,7 @@ import streamlit as st
 from app.agent_os import skills_hub_status
 from app.approval import build_action_request, decision_record
 from app.constitution import RiskConstitution
+from app.demo_scenarios import DEFAULT_DEMO_SCENARIO, DEMO_SCENARIOS
 from app.market_data import TRACKED_ASSETS, fetch_market_snapshot
 from app.market_risk import market_aware_risk
 from app.reasoning import build_agent_assessment
@@ -16,6 +17,29 @@ st.set_page_config(
     page_title="Binance Sentinel",
     page_icon="🛡️",
     layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+    .block-container {padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1280px;}
+    [data-testid="stSidebar"] {border-right: 1px solid rgba(243,186,47,.25);}
+    .sentinel-hero {
+        padding: 1.4rem 1.6rem;
+        border: 1px solid rgba(243,186,47,.45);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(243,186,47,.14), rgba(255,255,255,.02));
+        margin-bottom: 1rem;
+    }
+    .sentinel-kicker {color:#F3BA2F;font-weight:700;letter-spacing:.08em;font-size:.82rem;}
+    .sentinel-title {font-size:2.55rem;font-weight:800;line-height:1.05;margin:.25rem 0 .5rem 0;}
+    .sentinel-sub {font-size:1.02rem;opacity:.8;max-width:850px;}
+    .pill {display:inline-block;padding:.28rem .6rem;border-radius:999px;border:1px solid rgba(243,186,47,.45);margin:.18rem .25rem .18rem 0;font-size:.82rem;}
+    div[data-testid="stMetric"] {border:1px solid rgba(255,255,255,.08);padding:.9rem;border-radius:14px;background:rgba(255,255,255,.02);}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -32,102 +56,100 @@ def get_market_snapshot() -> dict:
     return fetch_market_snapshot(TRACKED_ASSETS)
 
 
-st.title("Binance Sentinel")
-st.caption("v0.10 — Binance Agent OS / Skills integration")
-st.info("Safe mode: public market data only, no Binance account login, no API keys, and no real trading.")
+def load_demo(name: str) -> None:
+    scenario = DEMO_SCENARIOS[name]
+    st.session_state["max_single_asset_pct"] = scenario["max_single_asset_pct"]
+    st.session_state["min_stablecoin_pct"] = scenario["min_stablecoin_pct"]
+    for asset, value in scenario["portfolio"].items():
+        st.session_state[f"portfolio_{asset}"] = float(value)
+    st.session_state["active_demo"] = name
+    st.session_state["approval_decision"] = None
+    st.session_state["approved_portfolio"] = None
 
-agent_os_status = skills_hub_status()
 
-st.subheader("Agent OS Integration")
-status1, status2, status3 = st.columns(3)
-status1.metric("Integration Mode", agent_os_status["mode"])
-status2.metric("binance-cli", "Detected" if agent_os_status["active"] else "Not detected")
-status3.metric("Sentinel Skill", "Installed" if agent_os_status["skill_path"] else "Repository skill")
+if "max_single_asset_pct" not in st.session_state:
+    st.session_state["max_single_asset_pct"] = 40
+if "min_stablecoin_pct" not in st.session_state:
+    st.session_state["min_stablecoin_pct"] = 15
+if "active_demo" not in st.session_state:
+    st.session_state["active_demo"] = "Custom"
+for asset, value in SAMPLE_PORTFOLIO.items():
+    st.session_state.setdefault(f"portfolio_{asset}", float(value))
 
-if agent_os_status["active"]:
-    st.success("Official Binance Skills Hub toolchain detected. Public market data will prefer binance-cli.")
-    if agent_os_status["cli_version"]:
-        st.caption(f"CLI: {agent_os_status['cli_version']}")
-else:
-    st.warning(
-        "Official Binance Skills Hub CLI is not installed on this computer yet. "
-        "Sentinel will continue with the public Binance REST fallback until the CLI is installed."
-    )
-
-st.caption(
-    "Sentinel also includes a Skills-compatible definition at "
-    "`.agents/skills/binance-sentinel/SKILL.md` so agent runtimes can discover the workflow."
+st.markdown(
+    """
+    <div class="sentinel-hero">
+      <div class="sentinel-kicker">BINANCE AGENT OS · TRACK A</div>
+      <div class="sentinel-title">🛡️ Binance Sentinel</div>
+      <div class="sentinel-sub">A safety-first portfolio risk agent that combines live Binance market data, user-defined guardrails, explainable risk reasoning, stress testing, simulated rebalancing, and human approval.</div>
+      <div style="margin-top:.8rem">
+        <span class="pill">Public market data</span>
+        <span class="pill">Risk Constitution</span>
+        <span class="pill">Explainable agent</span>
+        <span class="pill">What-if simulation</span>
+        <span class="pill">Human-in-the-loop</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.header("Risk Constitution")
+st.caption("Competition build · no Binance account login · no API key · no live trading")
 
-    max_single_asset_pct = st.slider(
+with st.sidebar:
+    st.header("Demo Control")
+    scenario_name = st.selectbox("Scenario", list(DEMO_SCENARIOS), index=0)
+    st.caption(DEMO_SCENARIOS[scenario_name]["description"])
+    if st.button("Load demo scenario", type="primary", use_container_width=True):
+        load_demo(scenario_name)
+        st.rerun()
+
+    st.caption(f"Active: {st.session_state['active_demo']}")
+    st.divider()
+
+    st.header("Risk Constitution")
+    st.slider(
         "Maximum single-asset allocation",
         min_value=5,
         max_value=90,
-        value=40,
         step=1,
+        key="max_single_asset_pct",
     )
-
-    min_stablecoin_pct = st.slider(
+    st.slider(
         "Minimum stablecoin allocation",
         min_value=0,
         max_value=90,
-        value=15,
         step=1,
+        key="min_stablecoin_pct",
     )
 
     st.divider()
-    st.header("Sample Portfolio")
-    st.caption("Change these values to test Sentinel without connecting Binance.")
-
+    st.header("Portfolio")
+    st.caption("USD values are local demo inputs; no account connection is required.")
     portfolio = {}
-    for asset, default_value in SAMPLE_PORTFOLIO.items():
+    for asset in SAMPLE_PORTFOLIO:
         portfolio[asset] = st.number_input(
             f"{asset} value (USD)",
             min_value=0.0,
-            value=float(default_value),
             step=10.0,
+            key=f"portfolio_{asset}",
         )
 
 constitution = RiskConstitution(
-    max_single_asset=max_single_asset_pct / 100,
-    min_stablecoin=min_stablecoin_pct / 100,
+    max_single_asset=st.session_state["max_single_asset_pct"] / 100,
+    min_stablecoin=st.session_state["min_stablecoin_pct"] / 100,
 )
 
 weights = allocations(portfolio)
 total = sum(portfolio.values())
 constitution_risk = risk_summary(portfolio, constitution)
 proposal = rebalance_proposal(portfolio, constitution)
+agent_os_status = skills_hub_status()
 
-st.subheader("Live Binance Market Data")
-st.caption("Public Binance data only. No account authentication is used.")
-
-if st.button("Refresh Market Data"):
+if st.button("Refresh live Binance data"):
     st.cache_data.clear()
 
 market_snapshot = get_market_snapshot()
-market_columns = st.columns(len(TRACKED_ASSETS))
-
-for column, asset in zip(market_columns, TRACKED_ASSETS):
-    result = market_snapshot[asset]
-    with column:
-        if result["ok"]:
-            data = result["data"]
-            st.metric(
-                f"{asset}/USDT",
-                money(data["price"]),
-                f"{data['change_percent']:.2f}% (24h)",
-            )
-            st.caption(
-                f"24h high {money(data['high'])} · low {money(data['low'])}"
-            )
-            st.caption(f"Source: {data.get('source', 'Binance public data')}")
-        else:
-            st.error(f"{asset} market data unavailable")
-            st.caption(result["error"])
-
 market_risk = market_aware_risk(portfolio, constitution, market_snapshot)
 
 stress_results = []
@@ -151,234 +173,220 @@ preview = build_rebalance_preview(
     market_snapshot,
     STRESS_SCENARIOS,
 )
-
 action_request = build_action_request(portfolio, proposal, preview)
 
-st.subheader("Market-Aware Risk")
-metric1, metric2, metric3, metric4 = st.columns(4)
-metric1.metric("Portfolio Value", money(total))
-metric2.metric("Risk Level", market_risk["level"])
-metric3.metric("Risk Score", f"{market_risk['score']:.1f} / 100")
-metric4.metric("Weighted 24h Move", f"{market_risk['weighted_24h_change']:.2f}%")
+m1, m2, m3, m4, m5 = st.columns(5)
+m1.metric("Portfolio", money(total))
+m2.metric("Risk level", market_risk["level"])
+m3.metric("Risk score", f"{market_risk['score']:.1f}/100")
+m4.metric("24h weighted move", f"{market_risk['weighted_24h_change']:.2f}%")
+m5.metric("Action priority", assessment["priority"])
 
-if market_risk["level"] == "CRITICAL":
-    st.error("Sentinel detects critical combined portfolio and market risk.")
-elif market_risk["level"] == "HIGH":
-    st.warning("Sentinel detects elevated combined portfolio and market risk.")
-elif market_risk["level"] == "MODERATE":
-    st.info("Sentinel detects moderate combined portfolio and market risk.")
-else:
-    st.success("Sentinel currently detects low combined portfolio and market risk.")
-
-st.write("**Why Sentinel assigned this score**")
-for reason in market_risk["reasons"]:
-    st.write(f"- {reason}")
-
-st.caption(
-    f"Live market-data coverage of the sample portfolio: {pct(market_risk['market_data_coverage'])}. "
-    "The score is deterministic and explainable; it is not a price prediction."
+overview_tab, agent_tab, simulation_tab, architecture_tab = st.tabs(
+    ["Overview", "Agent Explanation", "Simulation & Approval", "Architecture"]
 )
 
-st.subheader("Sentinel Agent Assessment")
-agent1, agent2 = st.columns([1, 3])
-with agent1:
-    st.metric("Action Priority", assessment["priority"])
-with agent2:
-    st.write(f"### {assessment['headline']}")
+with overview_tab:
+    st.subheader("Live Binance Market")
+    market_columns = st.columns(len(TRACKED_ASSETS))
+    for column, asset in zip(market_columns, TRACKED_ASSETS):
+        result = market_snapshot[asset]
+        with column:
+            if result["ok"]:
+                data = result["data"]
+                st.metric(
+                    f"{asset}/USDT",
+                    money(data["price"]),
+                    f"{data['change_percent']:.2f}% 24h",
+                )
+                st.caption(f"High {money(data['high'])} · Low {money(data['low'])}")
+                st.caption(data.get("source", "Binance public data"))
+            else:
+                st.error(f"{asset} data unavailable")
 
-with st.expander("Observe — what Sentinel sees", expanded=True):
-    for item in assessment["observations"]:
-        st.write(f"- {item}")
-
-with st.expander("Reason — how Sentinel interprets it", expanded=True):
-    for item in assessment["reasoning"]:
-        st.write(f"- {item}")
-
-with st.expander("Plan — what Sentinel recommends reviewing", expanded=True):
-    for item in assessment["plan"]:
-        st.write(f"- {item}")
-
-with st.expander("Guardrails — what Sentinel is not allowed to do"):
-    for item in assessment["guardrails"]:
-        st.write(f"- {item}")
-
-st.subheader("Simulated Rebalance Preview")
-st.caption("This is a what-if calculation only. No trade is sent anywhere.")
-
-if proposal:
-    st.write(
-        f"Simulated action: reduce **{proposal['asset']}** by about **{money(proposal['reduce_by'])}** "
-        f"and move that value to **{proposal['destination']}**."
-    )
-
-    before_col, after_col, change_col = st.columns(3)
-    before_col.metric("Before Risk Score", f"{preview['before_market']['score']:.1f} / 100", preview["before_market"]["level"])
-    after_col.metric("After Risk Score", f"{preview['after_market']['score']:.1f} / 100", preview["after_market"]["level"])
-    change_col.metric("Score Change", f"{preview['score_change']:+.1f}")
-
-    if preview["score_change"] < 0 or preview["violations_change"] < 0:
-        st.success(preview["verdict"])
-    elif preview["score_change"] > 0 or preview["violations_change"] > 0:
-        st.error(preview["verdict"])
-    else:
-        st.info(preview["verdict"])
-
-    comparison_rows = []
-    for row in preview["allocation_changes"]:
-        comparison_rows.append(
+    left, right = st.columns([1.2, 1])
+    with left:
+        st.subheader("Portfolio Allocation")
+        portfolio_rows = [
             {
-                "Asset": row["asset"],
-                "Before Value": money(row["before_value"]),
-                "After Value": money(row["after_value"]),
-                "Before Allocation": pct(row["before_allocation"]),
-                "After Allocation": pct(row["after_allocation"]),
+                "Asset": asset,
+                "Value": money(value),
+                "Allocation": pct(weights.get(asset, 0.0)),
             }
+            for asset, value in portfolio.items()
+        ]
+        st.dataframe(portfolio_rows, width="stretch", hide_index=True)
+        st.bar_chart({asset: weight * 100 for asset, weight in weights.items()})
+
+    with right:
+        st.subheader("Risk Constitution")
+        st.write(
+            f"Single-asset ceiling: **{pct(constitution.max_single_asset)}**  \n"
+            f"Minimum stablecoin reserve: **{pct(constitution.min_stablecoin)}**"
         )
-
-    st.write("**Before vs After Allocation**")
-    st.dataframe(comparison_rows, width="stretch", hide_index=True)
-
-    st.write("**Stress-test comparison**")
-    stress_preview_rows = []
-    for row in preview["stress_comparison"]:
-        stress_preview_rows.append(
-            {
-                "Scenario": row["name"],
-                "Before Drawdown": pct(row["before_drawdown"]),
-                "After Drawdown": pct(row["after_drawdown"]),
-                "Before Scenario Value": money(row["before_after_value"]),
-                "After Scenario Value": money(row["after_after_value"]),
-            }
+        st.write(
+            f"Current stablecoin allocation: **{pct(constitution_risk['stablecoin_allocation'])}**"
         )
-
-    st.dataframe(stress_preview_rows, width="stretch", hide_index=True)
-else:
-    st.success("No concentration-driven rebalance is currently required, so there is nothing to simulate.")
-
-st.subheader("Human Approval Workflow")
-st.caption("Approval affects only this local simulation. It does not place a Binance order.")
-
-if action_request:
-    current_action_id = action_request["id"]
-
-    if st.session_state.get("approval_action_id") != current_action_id:
-        st.session_state["approval_action_id"] = current_action_id
-        st.session_state["approval_decision"] = None
-        st.session_state["approved_portfolio"] = None
-
-    request1, request2, request3, request4 = st.columns(4)
-    request1.metric("Action ID", action_request["id"])
-    request2.metric("Source", action_request["source_asset"])
-    request3.metric("Destination", action_request["destination_asset"])
-    request4.metric("Amount", money(action_request["amount_usd"]))
-
-    st.write(
-        f"**Requested action:** move about {money(action_request['amount_usd'])} of value "
-        f"from {action_request['source_asset']} to {action_request['destination_asset']}."
-    )
-    st.write(
-        f"Expected risk score: **{action_request['before_score']:.1f} → {action_request['after_score']:.1f}**"
-    )
-
-    approve_col, reject_col = st.columns(2)
-
-    with approve_col:
-        if st.button("Approve simulated action", type="primary", use_container_width=True):
-            record = decision_record(action_request, "APPROVED")
-            st.session_state["approval_decision"] = record
-            st.session_state["approved_portfolio"] = action_request["simulated_after_portfolio"]
-
-    with reject_col:
-        if st.button("Reject action", use_container_width=True):
-            record = decision_record(action_request, "REJECTED")
-            st.session_state["approval_decision"] = record
-            st.session_state["approved_portfolio"] = None
-
-    decision = st.session_state.get("approval_decision")
-    if decision:
-        if decision["status"] == "APPROVED":
-            st.success(f"Action {decision['id']} APPROVED for local simulation only. No real trade was sent.")
-            approved = st.session_state.get("approved_portfolio")
-            if approved:
-                approved_rows = []
-                approved_weights = allocations(approved)
-                for asset, value in approved.items():
-                    approved_rows.append(
-                        {
-                            "Asset": asset,
-                            "Approved Simulated Value": money(value),
-                            "Allocation": pct(approved_weights.get(asset, 0.0)),
-                        }
-                    )
-                st.write("**Approved simulated portfolio state**")
-                st.dataframe(approved_rows, width="stretch", hide_index=True)
+        if constitution_risk["violations"]:
+            st.error("Constitution violation detected")
+            for violation in constitution_risk["violations"]:
+                st.write(
+                    f"- {violation['asset']}: {pct(violation['allocation'])} > {pct(violation['limit'])}"
+                )
         else:
-            st.error(f"Action {decision['id']} REJECTED. The local portfolio simulation remains unchanged.")
-else:
-    st.info("No action requires approval under the current Risk Constitution.")
+            st.success("No concentration-limit violations")
 
-st.subheader("Portfolio Allocation")
-portfolio_rows = [
-    {"Asset": asset, "Value": money(value), "Allocation": pct(weights.get(asset, 0.0))}
-    for asset, value in portfolio.items()
-]
-st.dataframe(portfolio_rows, width="stretch", hide_index=True)
+        st.subheader("Stress Tests")
+        st.dataframe(
+            [
+                {
+                    "Scenario": item["name"],
+                    "After": money(item["after"]),
+                    "Impact": pct(item["drawdown"]),
+                }
+                for item in stress_results
+            ],
+            width="stretch",
+            hide_index=True,
+        )
 
-chart_data = {asset: weight * 100 for asset, weight in weights.items()}
-st.bar_chart(chart_data)
+    st.subheader("Agent OS Integration")
+    i1, i2, i3 = st.columns(3)
+    i1.metric("Mode", agent_os_status["mode"])
+    i2.metric("Official Binance Skill", "Installed" if agent_os_status["skill_installed"] else "Not detected")
+    i3.metric("binance-cli", "Detected" if agent_os_status["active"] else "Optional / inactive")
+    st.caption("Sentinel remains operational with public Binance REST market data when the local CLI is unavailable.")
 
-left, right = st.columns(2)
+with agent_tab:
+    st.subheader("Agent Explanation Panel")
+    st.markdown(f"### {assessment['headline']}")
 
-with left:
-    st.subheader("Risk Constitution Check")
+    e1, e2, e3 = st.columns(3)
+    e1.metric("Decision priority", assessment["priority"])
+    e2.metric("Market-aware score", f"{market_risk['score']:.1f}/100")
+    e3.metric("Market data coverage", pct(market_risk["market_data_coverage"]))
 
-    if constitution_risk["level"] == "HIGH":
-        st.error("Risk Constitution violation detected.")
-    else:
-        st.success("Portfolio is within the current Risk Constitution.")
+    st.write("**Why this score**")
+    for reason in market_risk["reasons"]:
+        st.write(f"- {reason}")
 
-    st.write(
-        f"Stablecoin allocation: **{pct(constitution_risk['stablecoin_allocation'])}** "
-        f"(minimum **{pct(constitution_risk['stablecoin_minimum'])}**)"
+    observe_col, reason_col = st.columns(2)
+    with observe_col:
+        st.markdown("#### 1 · Observe")
+        for item in assessment["observations"]:
+            st.write(f"- {item}")
+    with reason_col:
+        st.markdown("#### 2 · Reason")
+        for item in assessment["reasoning"]:
+            st.write(f"- {item}")
+
+    plan_col, guard_col = st.columns(2)
+    with plan_col:
+        st.markdown("#### 3 · Plan")
+        for item in assessment["plan"]:
+            st.write(f"- {item}")
+    with guard_col:
+        st.markdown("#### 4 · Guardrails")
+        for item in assessment["guardrails"]:
+            st.write(f"- {item}")
+
+    st.info(
+        "The reasoning layer explains deterministic risk evidence. It cannot override the Risk Constitution and it cannot execute a trade."
     )
 
-    if constitution_risk["violations"]:
-        st.write("**Concentration violations**")
-        for violation in constitution_risk["violations"]:
-            st.write(
-                f"- {violation['asset']}: {pct(violation['allocation'])} > limit {pct(violation['limit'])}"
-            )
-    else:
-        st.write("No concentration-limit violations detected.")
-
-with right:
-    st.subheader("Suggested Rebalance")
+with simulation_tab:
+    st.subheader("What-If Rebalance")
+    st.caption("Sentinel tests the proposed action before asking a human to approve it.")
 
     if proposal:
-        st.warning(
-            f"Reduce {proposal['asset']} by about {money(proposal['reduce_by'])} "
-            f"and move that amount to {proposal['destination']}."
+        st.write(
+            f"Proposed simulation: move approximately **{money(proposal['reduce_by'])}** "
+            f"from **{proposal['asset']}** to **{proposal['destination']}**."
         )
-        st.write(f"Target {proposal['asset']} allocation: **{pct(proposal['target_allocation'])}**")
-        st.caption("Suggestion only. Sentinel v0.10 cannot place real trades.")
+
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Before risk", f"{preview['before_market']['score']:.1f}/100", preview["before_market"]["level"])
+        s2.metric("After risk", f"{preview['after_market']['score']:.1f}/100", preview["after_market"]["level"])
+        s3.metric("Score change", f"{preview['score_change']:+.1f}")
+
+        if preview["score_change"] < 0 or preview["violations_change"] < 0:
+            st.success(preview["verdict"])
+        elif preview["score_change"] > 0 or preview["violations_change"] > 0:
+            st.error(preview["verdict"])
+        else:
+            st.info(preview["verdict"])
+
+        st.dataframe(
+            [
+                {
+                    "Asset": row["asset"],
+                    "Before": pct(row["before_allocation"]),
+                    "After": pct(row["after_allocation"]),
+                    "Before value": money(row["before_value"]),
+                    "After value": money(row["after_value"]),
+                }
+                for row in preview["allocation_changes"]
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
+        st.markdown("#### Human Approval Gate")
+        if action_request:
+            current_action_id = action_request["id"]
+            if st.session_state.get("approval_action_id") != current_action_id:
+                st.session_state["approval_action_id"] = current_action_id
+                st.session_state["approval_decision"] = None
+                st.session_state["approved_portfolio"] = None
+
+            a1, a2, a3, a4 = st.columns(4)
+            a1.metric("Action ID", action_request["id"])
+            a2.metric("From", action_request["source_asset"])
+            a3.metric("To", action_request["destination_asset"])
+            a4.metric("Amount", money(action_request["amount_usd"]))
+
+            approve_col, reject_col = st.columns(2)
+            with approve_col:
+                if st.button("Approve simulation", type="primary", use_container_width=True):
+                    st.session_state["approval_decision"] = decision_record(action_request, "APPROVED")
+                    st.session_state["approved_portfolio"] = action_request["simulated_after_portfolio"]
+            with reject_col:
+                if st.button("Reject proposal", use_container_width=True):
+                    st.session_state["approval_decision"] = decision_record(action_request, "REJECTED")
+                    st.session_state["approved_portfolio"] = None
+
+            decision = st.session_state.get("approval_decision")
+            if decision:
+                if decision["status"] == "APPROVED":
+                    st.success(f"Action {decision['id']} approved for local simulation only. No Binance order was sent.")
+                else:
+                    st.warning(f"Action {decision['id']} rejected. No portfolio state changed.")
     else:
-        st.success("No concentration-driven rebalance is currently required.")
+        st.success("No concentration-driven rebalance is required under the current Risk Constitution.")
 
-st.subheader("Stress Tests")
-stress_rows = [
-    {
-        "Scenario": result["name"],
-        "Before": money(result["before"]),
-        "After": money(result["after"]),
-        "Impact": pct(result["drawdown"]),
-    }
-    for result in stress_results
-]
-
-st.dataframe(stress_rows, width="stretch", hide_index=True)
+with architecture_tab:
+    st.subheader("System Architecture")
+    st.markdown(
+        """
+```mermaid
+flowchart LR
+    A[Binance Market Data] --> B[Portfolio + Risk Constitution]
+    B --> C[Risk Engine]
+    C --> D[Agent Explanation]
+    C --> E[Stress Tests]
+    D --> F[Rebalance Proposal]
+    E --> F
+    F --> G[What-If Simulation]
+    G --> H{Human Approval}
+    H -->|Approve| I[Local Approved State]
+    H -->|Reject| J[No Change]
+```
+        """
+    )
+    st.caption("Full architecture documentation is available in `docs/ARCHITECTURE.md`.")
+    st.warning("Competition safety boundary: execution stops at local human-approved simulation. Live trading is intentionally disabled.")
 
 st.divider()
 st.caption(
-    "Sentinel v0.10 adds Binance Agent OS / Skills integration for public market data and a "
-    "Skills-compatible Sentinel workflow definition. Account authentication and real execution remain disabled."
+    "Binance Sentinel · Track A competition build · public market data + deterministic safety rules + explainable reasoning + human-in-the-loop simulation"
 )
