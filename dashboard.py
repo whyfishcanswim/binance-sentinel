@@ -6,6 +6,7 @@ from app.market_risk import market_aware_risk
 from app.reasoning import build_agent_assessment
 from app.risk_engine import allocations, rebalance_proposal, risk_summary
 from app.sample_data import SAMPLE_PORTFOLIO, STRESS_SCENARIOS
+from app.simulation import build_rebalance_preview
 from app.stress_test import run_stress_test
 
 
@@ -30,7 +31,7 @@ def get_market_snapshot() -> dict:
 
 
 st.title("Binance Sentinel")
-st.caption("v0.7 — Explainable agent reasoning layer")
+st.caption("v0.8 — Simulated rebalance preview")
 st.info("Safe local mode: no Binance login, no API keys, and no trading.")
 
 with st.sidebar:
@@ -117,6 +118,14 @@ assessment = build_agent_assessment(
     stress_results,
 )
 
+preview = build_rebalance_preview(
+    portfolio,
+    proposal,
+    constitution,
+    market_snapshot,
+    STRESS_SCENARIOS,
+)
+
 st.subheader("Market-Aware Risk")
 metric1, metric2, metric3, metric4 = st.columns(4)
 metric1.metric("Portfolio Value", money(total))
@@ -169,6 +178,71 @@ with st.expander("Guardrails — what Sentinel is not allowed to do"):
     for item in assessment["guardrails"]:
         st.write(f"- {item}")
 
+st.subheader("Simulated Rebalance Preview")
+st.caption("This is a what-if calculation only. No trade is sent anywhere.")
+
+if proposal:
+    st.write(
+        f"Simulated action: reduce **{proposal['asset']}** by about "
+        f"**{money(proposal['reduce_by'])}** and move that value to "
+        f"**{proposal['destination']}**."
+    )
+
+    before_col, after_col, change_col = st.columns(3)
+    before_col.metric(
+        "Before Risk Score",
+        f"{preview['before_market']['score']:.1f} / 100",
+        preview["before_market"]["level"],
+    )
+    after_col.metric(
+        "After Risk Score",
+        f"{preview['after_market']['score']:.1f} / 100",
+        preview["after_market"]["level"],
+    )
+    change_col.metric(
+        "Score Change",
+        f"{preview['score_change']:+.1f}",
+    )
+
+    if preview["score_change"] < 0 or preview["violations_change"] < 0:
+        st.success(preview["verdict"])
+    elif preview["score_change"] > 0 or preview["violations_change"] > 0:
+        st.error(preview["verdict"])
+    else:
+        st.info(preview["verdict"])
+
+    comparison_rows = []
+    for row in preview["allocation_changes"]:
+        comparison_rows.append(
+            {
+                "Asset": row["asset"],
+                "Before Value": money(row["before_value"]),
+                "After Value": money(row["after_value"]),
+                "Before Allocation": pct(row["before_allocation"]),
+                "After Allocation": pct(row["after_allocation"]),
+            }
+        )
+
+    st.write("**Before vs After Allocation**")
+    st.dataframe(comparison_rows, width="stretch", hide_index=True)
+
+    st.write("**Stress-test comparison**")
+    stress_preview_rows = []
+    for row in preview["stress_comparison"]:
+        stress_preview_rows.append(
+            {
+                "Scenario": row["name"],
+                "Before Drawdown": pct(row["before_drawdown"]),
+                "After Drawdown": pct(row["after_drawdown"]),
+                "Before Scenario Value": money(row["before_after_value"]),
+                "After Scenario Value": money(row["after_after_value"]),
+            }
+        )
+
+    st.dataframe(stress_preview_rows, width="stretch", hide_index=True)
+else:
+    st.success("No concentration-driven rebalance is currently required, so there is nothing to simulate.")
+
 st.subheader("Portfolio Allocation")
 portfolio_rows = [
     {
@@ -220,7 +294,7 @@ with right:
             f"Target {proposal['asset']} allocation: "
             f"**{pct(proposal['target_allocation'])}**"
         )
-        st.caption("Suggestion only. Sentinel v0.7 cannot place trades.")
+        st.caption("Suggestion only. Sentinel v0.8 cannot place trades.")
     else:
         st.success("No concentration-driven rebalance is currently required.")
 
@@ -239,6 +313,6 @@ st.dataframe(stress_rows, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Sentinel v0.7 adds an auditable Observe → Reason → Plan → Guardrail layer. "
-    "It uses no external AI API yet, and Binance Agent OS authentication and execution remain disabled."
+    "Sentinel v0.8 adds a simulated before-vs-after rebalance preview. "
+    "It executes nothing. Binance Agent OS authentication and real execution remain disabled."
 )
